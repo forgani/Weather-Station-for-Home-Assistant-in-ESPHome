@@ -1,0 +1,565 @@
+#*******************************************************************************
+# ESP32 S2 based Weather Station
+# The weather station measures speed and direction of wind, as well as temperature and humidity.
+# Forgani, Forghanain  forgani.com
+# More information at: https://forgani.com/electronics-projects/weather-station-home-assistant-esphome/
+# initial 24 Apr. 2025
+# ******************************************************************************/substitutions:
+substitutions:
+  friendly_name: 'weatherstation'
+  log_level: "INFO" # "INFO" # "DEBUG"
+  adc_direction_pin: GPIO03
+  voltage_divider_pin: GPIO05
+  DHT11_pin: GPIO07 
+  rain_gauge_pin: GPIO37
+  anemometer_pin: GPIO18
+  
+esphome:
+  name: $friendly_name
+
+esp32:
+  board: esp32-s2-saola-1
+  framework:
+    type: arduino
+    
+logger:
+  level: ${log_level}
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  power_save_mode: NONE
+  networks:
+    - ssid: !secret iot_wifi_ssid
+      password: !secret iot_wifi_password
+
+  
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret encryption
+
+i2c:
+  sda: GPIO33
+  scl: GPIO35
+  
+sun:
+  latitude: !secret latitude
+  longitude: !secret longitude
+
+sensor:
+  # Anemometer Wind speed sensor
+  # 1 turn = 2 pulses (2hz)
+  - platform: pulse_meter
+    pin:
+      number: ${anemometer_pin}
+      mode: INPUT
+    id: wind_speed_kmh
+    unit_of_measurement: 'km/h'
+    name: "${friendly_name} speed meter"
+    icon: 'mdi:weather-windy'
+    device_class: wind_speed
+    state_class: measurement
+    internal: True
+    accuracy_decimals: 2
+    internal_filter: 13us
+    timeout: 5s
+    filters:
+      - multiply: 0.02   # 2.4 km/hr / 60 pulses / 2 clicks per rotation (0.04)
+      - sliding_window_moving_average:
+          window_size: 10 
+          send_every: 10
+      - timeout: # to reset the sensor to 0 when it stops rotating
+          timeout: 5s
+          value: 0
+
+  # wind Direction bearing
+  - platform: copy
+    name: '${friendly_name} wind speed (km/h)'
+    icon: 'mdi:weather-windy'
+    id: wind_speed_kmh_avg
+    source_id: wind_speed_kmh
+    device_class: wind_speed
+    state_class: measurement
+    unit_of_measurement: 'km/h'
+    on_value:
+      lambda: |-
+        if (x < 1) {
+          id(wind_scale_code).publish_state("0");
+          id(wind_scale).publish_state("Calm"); # Ruhig
+        } else if (x >= 1 && x < 6) {
+          id(wind_scale_code).publish_state("1");
+          id(wind_scale).publish_state("Light Air");
+        } else if (x >= 6 && x < 12) {
+          id(wind_scale_code).publish_state("2");
+          id(wind_scale).publish_state("Light Breeze");
+        } else if (x >= 12 && x < 20) {
+          id(wind_scale_code).publish_state("3");
+          id(wind_scale).publish_state("Gentle Breeze");
+        } else if (x >= 20 && x < 29) {
+          id(wind_scale_code).publish_state("4");
+          id(wind_scale).publish_state("Moderate Breeze");
+        } else if (x >= 29 && x < 39) {
+          id(wind_scale_code).publish_state("5");
+          id(wind_scale).publish_state("Fresh Breeze");
+        } else if (x >= 39 && x < 50) {
+          id(wind_scale_code).publish_state("6");
+          id(wind_scale).publish_state("Strong Breeze");
+        } else if (x >= 50 && x < 62) {
+          id(wind_scale_code).publish_state("7");
+          id(wind_scale).publish_state("Near Gale");
+        } else if (x >= 62 && x < 75) {
+          id(wind_scale_code).publish_state("8");
+          id(wind_scale).publish_state("Gale");
+        } else if (x >= 75 && x < 89) {
+          id(wind_scale_code).publish_state("9");
+          id(wind_scale).publish_state("Severe Gale");
+        } else if (x >= 89 && x < 103) {
+          id(wind_scale_code).publish_state("10");
+          id(wind_scale).publish_state("Storm");
+        } else if (x >= 103 && x < 118) {
+          id(wind_scale_code).publish_state("11");
+          id(wind_scale).publish_state("Violent Storm");
+        } else if (x >= 118) {
+          id(wind_scale_code).publish_state("12");
+          id(wind_scale).publish_state("Hurricane Force");
+        } else {
+          ESP_LOGD("main", "It shouldn't happen (wind_speed_kmh_avg: %f)", x);
+        }
+  # rain gauge
+  - platform: pulse_counter
+    pin:
+      number: ${rain_gauge_pin}
+      mode: INPUT
+    unit_of_measurement: 'mm'
+    name: "${friendly_name} rain gauge"
+    icon: 'mdi:weather-rainy'
+    id: rain_gauge
+    internal: true
+    count_mode:
+      rising_edge: DISABLE
+      falling_edge: INCREMENT
+    internal_filter: 13us
+    update_interval: 60s
+    filters:
+      # Each 0.011" (0.2794mm) of rain causes one momentary contact closure
+      - multiply: 0.2794
+    accuracy_decimals: 2
+     
+  - platform: integration
+    name: "${friendly_name} rainfall per min"
+    id: rain_per_min
+    time_unit: min
+    unit_of_measurement: 'mm'
+    icon: 'mdi:weather-rainy'
+    sensor: rain_gauge
+    
+  # total daily rain
+  - platform: total_daily_energy
+    name: "${friendly_name} total daily rain"
+    power_id: rain_gauge
+    unit_of_measurement: 'mm'
+    icon: 'mdi:weather-rainy'
+    # x60 To convert to aggregated rain amount
+    filters:
+      - multiply: 60
+
+  # wind direction SparkFun device
+  # ADC input of the ESP32         
+  - platform: adc
+    id: direction_sensor
+    pin: ${adc_direction_pin}
+    attenuation: 12db
+    internal: True
+    update_interval: 5s
+    accuracy_decimals: 2
+    
+  - platform: resistance
+    sensor: direction_sensor
+    id: resistance_sensor
+    configuration: DOWNSTREAM
+    resistor: 10kOhm
+    internal: True
+    name: resistance_sensor
+    reference_voltage: 3.3V
+    accuracy_decimals: 1
+    on_value:
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 29000.0
+              below: 36999.9
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "N"
+            - sensor.template.publish:
+                id: wind_heading
+                state: 0.0
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 5000.0
+              below: 7399.9
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "NNE"
+            - sensor.template.publish:
+                id: wind_heading
+                state: 22.5
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 7400.0
+              below: 11999.9
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "NE"
+            - sensor.template.publish:
+                id: wind_heading
+                state: 45.0
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 800.0
+              below: 949.9
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "ENE"
+            - sensor.template.publish:
+                id: wind_heading
+                state: 67.5
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 950.0
+              below: 1199.9
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "E"
+            - sensor.template.publish:
+                id: wind_heading
+                state: 90.0
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 600.0
+              below: 799.9
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "ESE"
+            - sensor.template.publish:
+                id: wind_heading
+                state: 112.5
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 1900.0
+              below: 2699.9
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "SE"
+            - sensor.template.publish:
+                id: wind_heading
+                state: 135.0
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 1200.0
+              below: 1899.9
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "SSE"
+            - sensor.template.publish:
+                id: wind_heading
+                state: 157.5
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 3500.0
+              below: 4999.9
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "S"
+            - sensor.template.publish:
+                id: wind_heading
+                state: 180.0
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 2700.0
+              below: 3499.9
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "SSW"
+            - sensor.template.publish:
+                id: wind_heading
+                state: 202.5
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 14250.0
+              below: 18999.9
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "SW"
+            - sensor.template.publish:
+                id: wind_heading
+                state: 225.0
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 12000.0
+              below: 14249.9
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "WSW"
+            - sensor.template.publish:
+                id: wind_heading
+                state: 247.5
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 100000.0
+              below: 150000.9
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "W"
+            - sensor.template.publish:
+                id: wind_heading
+                state: 270.0
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 37000.0
+              below: 51999.9
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "WNW"
+            - sensor.template.publish:
+                id: wind_heading
+                state: 292.5
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 52000.0
+              below: 99999.9
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "NW"
+            - sensor.template.publish:
+                id: wind_heading
+                state: 315.0
+      - if:
+          condition:
+            sensor.in_range:
+              id: resistance_sensor
+              above: 19000.0
+              below: 28999.9
+          then:
+            - text_sensor.template.publish:
+                id: wind_dir_card
+                state: "NNW"
+            - sensor.template.publish:
+                id: wind_heading
+                state: 337.5
+
+
+  # DHT temp & humidity sensor
+  - platform: dht
+    pin: ${DHT11_pin}
+    model: DHT11
+    temperature:
+      name: "${friendly_name} Temperature"
+      id: station_temperature
+      device_class: "temperature"
+      state_class: "measurement"
+      unit_of_measurement: "°C"
+      accuracy_decimals: 2
+      filters:
+        filter_out: nan
+    humidity:
+      name: "${friendly_name} Humidity"
+      id: station_humidity
+      filters:
+        filter_out: nan
+    update_interval: 5s
+    
+  - platform: absolute_humidity
+    name: Station Absolute Humidity
+    temperature: station_temperature
+    humidity: station_humidity
+    filters:
+      filter_out: nan  
+  # INA226 DC current and power sensor to check the car battery voltage.
+  - platform: ina226 
+    address: 0x40
+    shunt_resistance: 0.1 ohm
+    current:
+      name: "${friendly_name} Battery current"
+    power:
+      name: "${friendly_name} Battery power"
+      id: battery_power
+    bus_voltage:
+      name: "${friendly_name} Battery voltage"    
+      icon: mdi:car-battery
+    shunt_voltage:
+      name: "${friendly_name} Battery shunt voltage"
+    max_current: 3.2A
+    update_interval: 10s
+    # adc time used for Bus Voltage and Shunt Voltage
+    adc_time:
+      voltage: 140us
+      current: 332us
+
+  - platform: total_daily_energy
+    name: "${friendly_name} total daily Battery energy"
+    power_id: battery_power
+    unit_of_measurement: "Wh"
+    accuracy_decimals: 2 
+    
+  - platform: uptime
+    name: ${friendly_name} Uptime
+    id: station_uptime
+    update_interval: 5s
+    unit_of_measurement: s
+    accuracy_decimals: 0
+    force_update: false
+    icon: mdi:timer
+
+  # WiFi Signal sensor.
+  - platform: wifi_signal
+    name: ${friendly_name} WiFi Signal
+    update_interval: 5s
+    unit_of_measurement: dB
+    accuracy_decimals: 0
+    force_update: false
+    icon: mdi:wifi   
+
+  - platform: template
+    name: "${friendly_name} wind heading"
+    id: wind_heading
+    unit_of_measurement: "°"
+
+  - platform: sun
+    name: "${friendly_name} Sun elevation"
+    type: elevation
+    update_interval: 120s
+
+  - platform: sun
+    name: "${friendly_name} Sun azimuth"
+    type: azimuth
+    update_interval: 120s
+  # reserved
+  - platform: adc
+    id: bty_voltage 
+    pin: ${voltage_divider_pin}
+    attenuation: auto
+    icon: mdi:car-battery
+    name: "${friendly_name} bty voltage"
+    update_interval: 5s
+    accuracy_decimals: 1
+    filters:
+      - calibrate_linear:
+      # Map from voltage to Battery level
+      # https://ohmslawcalculator.com/voltage-divider-calculator
+      # r1: 15.31k, r2:4.67, max_voltage:14.119v
+        - 1.7 -> 7.5
+        - 2.3 -> 11
+        - 2.6 -> 12
+        - 3.3 -> 14.12
+      # use moving median to smooth spikes
+      - median:
+          window_size: 5
+          send_every: 5
+          send_first_at: 5
+      # - delta: 0.1 # Only send values to HA if they change 
+      # - throttle: 30s # Limit values sent to Ha
+    
+
+interval:
+  - interval: 60s
+    then:
+      - sensor.integration.reset: rain_per_min
+
+# Enable time component to reset energy at midnight
+time:
+  - platform: sntp
+    timezone: "Europe/Paris"
+    
+# Get the WiFi details
+text_sensor:
+  - platform: version
+    name: "${friendly_name} esphome version" 
+  - platform: wifi_info
+    ip_address:
+      name: "${friendly_name} IP Address"
+    ssid:
+      name: "${friendly_name} SSID"
+    mac_address:
+      name: "${friendly_name} Mac Address"
+  - platform: template
+    name: "${friendly_name} Wind direction"
+    id: wind_dir_card
+      
+  - platform: template
+    name: '${friendly_name} Beaufort wind scale'
+    icon: 'mdi:tailwind'
+    id: wind_scale
+    update_interval: never
+
+  - platform: template
+    name: '${friendly_name} Beaufort wind scale code'
+    icon: 'mdi:tailwind'
+    id: wind_scale_code
+
+  - platform: sun
+    name: "${friendly_name} next sunrise"
+    type: sunrise
+    update_interval: 4h
+    
+  - platform: sun
+    name: "${friendly_name} next sunset"
+    type: sunset
+    update_interval: 4h
+
+button:
+  - platform: template
+    name: "${friendly_name} total rain"
+    id: rain_total_reset
+    icon: "mdi:rotate-left"
+    on_press:
+      - pulse_counter.set_total_pulses:
+          id: rain_gauge
+          value: !lambda 'return 0;'
