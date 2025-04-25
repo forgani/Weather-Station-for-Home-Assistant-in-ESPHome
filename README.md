@@ -32,7 +32,7 @@ The INA226 has a voltage limit of 26 V and can measure a maximum current of ±3.
 **ESP32 S2 mini** According to the datasheet you can find out which other GPIO pins can be used for projects.
 
     GPIO03:  ADC Wind Direction
-    GPIO37:  Wind direction (Wind vane)
+    GPIO37:  Rain Gauge
     GPIO39:  Anemometer (Wind speed)
     GPIO33:  SDA
     GPIO35:  SCL
