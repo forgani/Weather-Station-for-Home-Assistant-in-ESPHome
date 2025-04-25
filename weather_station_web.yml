@@ -7,7 +7,7 @@
 # ******************************************************************************/substitutions:
 substitutions:
   friendly_name: 'weatherstation'
-  log_level: "INFO" # "INFO" # "DEBUG"
+  log_level: "NONE" # "INFO" # "DEBUG"
   adc_direction_pin: GPIO03
   voltage_divider_pin: GPIO05
   DHT11_pin: GPIO07 
@@ -52,13 +52,33 @@ sun:
 sensor:
   # Anemometer Wind speed sensor
   # 1 turn = 2 pulses (2hz)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   - platform: pulse_meter
     pin:
       number: ${anemometer_pin}
       mode: INPUT
     id: wind_speed_kmh
     unit_of_measurement: 'km/h'
-    name: "${friendly_name} speed meter"
+    name: "${friendly_name} wind speed (km/h)"
     icon: 'mdi:weather-windy'
     device_class: wind_speed
     state_class: measurement
@@ -79,7 +99,7 @@ sensor:
   - platform: copy
     name: '${friendly_name} wind speed (km/h)'
     icon: 'mdi:weather-windy'
-    id: wind_speed_kmh_avg
+    source_id: wind_speed
     source_id: wind_speed_kmh
     device_class: wind_speed
     state_class: measurement
@@ -155,10 +175,26 @@ sensor:
     unit_of_measurement: 'mm'
     icon: 'mdi:weather-rainy'
     sensor: rain_gauge
+
+  - platform: integration
+    name: "${friendly_name} rainfall per hour"
+    id: rain_per_hour
+    time_unit: h
+    unit_of_measurement: 'mm'
+    icon: 'mdi:weather-rainy'
+    sensor: rain_gauge
+
+  - platform: integration
+    name: "${friendly_name} rainfall per day"
+    id: rain_per_daily
+    time_unit: d
+    unit_of_measurement: 'mm'
+    icon: 'mdi:weather-rainy'
+    sensor: rain_gauge
     
   # total daily rain
   - platform: total_daily_energy
-    name: "${friendly_name} total daily rain"
+    name: "${friendly_name} 24 Hour Rain"
     power_id: rain_gauge
     unit_of_measurement: 'mm'
     icon: 'mdi:weather-rainy'
@@ -166,30 +202,32 @@ sensor:
     filters:
       - multiply: 60
 
-  # wind direction SparkFun device
-  # ADC input of the ESP32         
+
+ # wind direction SparkFun device
+  # ADC input of the ESP32       
   - platform: adc
-    id: direction_sensor
+    id: direction_degree
     pin: ${adc_direction_pin}
+    name: "${friendly_name} direction_degree"
     attenuation: 12db
     internal: True
     update_interval: 5s
     accuracy_decimals: 2
     
   - platform: resistance
-    sensor: direction_sensor
-    id: resistance_sensor
+    sensor: direction_degree
+    id: direction_code
     configuration: DOWNSTREAM
     resistor: 10kOhm
     internal: True
-    name: resistance_sensor
+    name: "${friendly_name} direction_code"
     reference_voltage: 3.3V
     accuracy_decimals: 1
     on_value:
       - if:
           condition:
             sensor.in_range:
-              id: resistance_sensor
+              id: direction_code
               above: 29000.0
               below: 36999.9
           then:
@@ -202,7 +240,7 @@ sensor:
       - if:
           condition:
             sensor.in_range:
-              id: resistance_sensor
+              id: direction_code
               above: 5000.0
               below: 7399.9
           then:
@@ -215,7 +253,7 @@ sensor:
       - if:
           condition:
             sensor.in_range:
-              id: resistance_sensor
+              id: direction_code
               above: 7400.0
               below: 11999.9
           then:
@@ -228,7 +266,7 @@ sensor:
       - if:
           condition:
             sensor.in_range:
-              id: resistance_sensor
+              id: direction_code
               above: 800.0
               below: 949.9
           then:
@@ -241,7 +279,7 @@ sensor:
       - if:
           condition:
             sensor.in_range:
-              id: resistance_sensor
+              id: direction_code
               above: 950.0
               below: 1199.9
           then:
@@ -254,7 +292,7 @@ sensor:
       - if:
           condition:
             sensor.in_range:
-              id: resistance_sensor
+              id: direction_code
               above: 600.0
               below: 799.9
           then:
@@ -267,7 +305,7 @@ sensor:
       - if:
           condition:
             sensor.in_range:
-              id: resistance_sensor
+              id: direction_code
               above: 1900.0
               below: 2699.9
           then:
@@ -280,7 +318,7 @@ sensor:
       - if:
           condition:
             sensor.in_range:
-              id: resistance_sensor
+              id: direction_code
               above: 1200.0
               below: 1899.9
           then:
@@ -293,7 +331,7 @@ sensor:
       - if:
           condition:
             sensor.in_range:
-              id: resistance_sensor
+              id: direction_code
               above: 3500.0
               below: 4999.9
           then:
@@ -306,7 +344,7 @@ sensor:
       - if:
           condition:
             sensor.in_range:
-              id: resistance_sensor
+              id: direction_code
               above: 2700.0
               below: 3499.9
           then:
@@ -319,7 +357,7 @@ sensor:
       - if:
           condition:
             sensor.in_range:
-              id: resistance_sensor
+              id: direction_code
               above: 14250.0
               below: 18999.9
           then:
@@ -332,7 +370,7 @@ sensor:
       - if:
           condition:
             sensor.in_range:
-              id: resistance_sensor
+              id: direction_code
               above: 12000.0
               below: 14249.9
           then:
@@ -345,7 +383,7 @@ sensor:
       - if:
           condition:
             sensor.in_range:
-              id: resistance_sensor
+              id: direction_code
               above: 100000.0
               below: 150000.9
           then:
@@ -358,7 +396,7 @@ sensor:
       - if:
           condition:
             sensor.in_range:
-              id: resistance_sensor
+              id: direction_code
               above: 37000.0
               below: 51999.9
           then:
@@ -371,7 +409,7 @@ sensor:
       - if:
           condition:
             sensor.in_range:
-              id: resistance_sensor
+              id: direction_code
               above: 52000.0
               below: 99999.9
           then:
@@ -384,7 +422,7 @@ sensor:
       - if:
           condition:
             sensor.in_range:
-              id: resistance_sensor
+              id: direction_code
               above: 19000.0
               below: 28999.9
           then:
@@ -468,7 +506,7 @@ sensor:
     icon: mdi:wifi   
 
   - platform: template
-    name: "${friendly_name} wind heading"
+    name: "${friendly_name} wind heading degree"
     id: wind_heading
     unit_of_measurement: "°"
 
@@ -481,33 +519,8 @@ sensor:
     name: "${friendly_name} Sun azimuth"
     type: azimuth
     update_interval: 120s
-  # reserved
-  - platform: adc
-    id: bty_voltage 
-    pin: ${voltage_divider_pin}
-    attenuation: auto
-    icon: mdi:car-battery
-    name: "${friendly_name} bty voltage"
-    update_interval: 5s
-    accuracy_decimals: 1
-    filters:
-      - calibrate_linear:
-      # Map from voltage to Battery level
-      # https://ohmslawcalculator.com/voltage-divider-calculator
-      # r1: 15.31k, r2:4.67, max_voltage:14.119v
-        - 1.7 -> 7.5
-        - 2.3 -> 11
-        - 2.6 -> 12
-        - 3.3 -> 14.12
-      # use moving median to smooth spikes
-      - median:
-          window_size: 5
-          send_every: 5
-          send_first_at: 5
-      # - delta: 0.1 # Only send values to HA if they change 
-      # - throttle: 30s # Limit values sent to Ha
-    
 
+# Rain Reset Timer Start
 interval:
   - interval: 60s
     then:
@@ -530,7 +543,7 @@ text_sensor:
     mac_address:
       name: "${friendly_name} Mac Address"
   - platform: template
-    name: "${friendly_name} Wind direction"
+    name: "${friendly_name} Wind direction Letter"
     id: wind_dir_card
       
   - platform: template
