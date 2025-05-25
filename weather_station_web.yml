@@ -52,26 +52,6 @@ sun:
 sensor:
   # Anemometer Wind speed sensor
   # 1 turn = 2 pulses (2hz)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
   - platform: pulse_meter
     pin:
       number: ${anemometer_pin}
